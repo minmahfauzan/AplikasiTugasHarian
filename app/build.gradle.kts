@@ -61,4 +61,5 @@ dependencies {
 
     // RecyclerView (untuk menampilkan daftar tugas)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+
 }

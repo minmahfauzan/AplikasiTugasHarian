@@ -1,5 +1,8 @@
 package com.minmah.AplikasiTugasHarian
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ObjectAnimator
 import android.os.Bundle
 import android.view.View
 import android.widget.AdapterView
@@ -9,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.minmah.AplikasiTugasHarian.databinding.ActivityMainBinding
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
@@ -22,10 +26,13 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     private lateinit var taskAdapter: TaskAdapter
     private lateinit var calendarAdapter: CalendarAdapter
     private lateinit var taskDao: TaskDao
+    private lateinit var specialTaskDao: SpecialTaskDao
 
     private var selectedDate: Date = Date() // Default ke hari ini
+    private var selectedTaskFilterType: String = "Tugas Harian" // Default filter
 
     private var observeJob: Job? = null
+    private var calendarAnimator: ObjectAnimator? = null // Tambahkan ini
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,10 +41,11 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
 
         val database = TaskDatabase.getDatabase(applicationContext)
         taskDao = database.taskDao()
+        specialTaskDao = database.specialTaskDao()
 
         setupRecyclerViews()
         setupSpinners()
-        setupActionButtons() // Menggantikan setupAddButtonListener
+        setupActionButtons()
     }
 
     // --- FUNGSI SETUP --- //
@@ -53,13 +61,35 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
         }
 
         taskAdapter = TaskAdapter(
-            tasks = emptyList(),
             onTaskChecked = { task -> updateTaskStatus(task) },
             onDeleteClicked = { task -> deleteTask(task) }
         )
         binding.recyclerViewTasks.apply {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = taskAdapter
+
+            // Tambahkan scroll listener untuk menyembunyikan/menampilkan kalender
+            addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                    super.onScrolled(recyclerView, dx, dy)
+
+                    // Jika menggulir ke bawah (konten bergerak ke atas) dan kalender terlihat, sembunyikan
+                    if (dy > 0 && binding.calendarContainer.visibility == View.VISIBLE) {
+                        hideCalendarContainer()
+                    }
+                }
+
+                override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                    super.onScrollStateChanged(recyclerView, newState)
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        // Jika berada di paling atas daftar (tidak bisa menggulir ke atas lagi)
+                        // dan kalender tersembunyi, tampilkan kalender
+                        if (!recyclerView.canScrollVertically(-1) && binding.calendarContainer.visibility == View.GONE) {
+                            showCalendarContainer()
+                        }
+                    }
+                }
+            })
         }
     }
 
@@ -83,7 +113,15 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
         binding.spinnerMonth.adapter = monthAdapter
         binding.spinnerMonth.setSelection(currentMonth)
 
-        val spinnerListener = object : AdapterView.OnItemSelectedListener {
+        // --- Spinner Filter Jenis Tugas ---
+        val taskTypes = listOf("Tugas Harian", "Tugas Spesial")
+        val taskTypeAdapter = ArrayAdapter(this, R.layout.custom_spinner_item, taskTypes)
+        taskTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.spinnerTaskType.adapter = taskTypeAdapter
+        binding.spinnerTaskType.setSelection(0) // Default: Tugas Harian
+
+        // --- Listener untuk Spinner Bulan & Tahun ---
+        val dateSpinnerListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val year = binding.spinnerYear.selectedItem.toString().toInt()
                 val month = binding.spinnerMonth.selectedItemPosition
@@ -103,8 +141,17 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        binding.spinnerYear.onItemSelectedListener = spinnerListener
-        binding.spinnerMonth.onItemSelectedListener = spinnerListener
+        binding.spinnerYear.onItemSelectedListener = dateSpinnerListener
+        binding.spinnerMonth.onItemSelectedListener = dateSpinnerListener
+
+        // --- Listener untuk Spinner Filter Jenis Tugas ---
+        binding.spinnerTaskType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectedTaskFilterType = taskTypes[position]
+                observeTasksForDay()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
         
         updateCalendarGrid()
     }
@@ -118,15 +165,21 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
                 return@setOnClickListener
             }
 
-            val newTask = Task(
-                date = normalizeDateToStartOfDay(selectedDate),
-                description = description
-            )
+            val taskDate = normalizeDateToStartOfDay(selectedDate)
 
-            lifecycleScope.launch {
-                taskDao.insert(newTask)
-                binding.editTextTask.text.clear()
+            // Tambahkan tugas berdasarkan pilihan RadioButton
+            when (binding.radioGroupTaskType.checkedRadioButtonId) {
+                R.id.radioDaily -> {
+                    val newTask = Task(date = taskDate, description = description)
+                    lifecycleScope.launch { taskDao.insert(newTask) }
+                }
+                R.id.radioSpecial -> {
+                    val newSpecialTask = SpecialTask(date = taskDate, description = description)
+                    lifecycleScope.launch { specialTaskDao.insert(newSpecialTask) }
+                }
             }
+            binding.editTextTask.text.clear()
+            binding.radioDaily.isChecked = true // Reset ke Tugas Harian
         }
 
         // Listener untuk tombol Salin
@@ -147,9 +200,27 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     private fun observeTasksForDay() {
         observeJob?.cancel()
         val normalizedDate = normalizeDateToStartOfDay(selectedDate)
+
         observeJob = lifecycleScope.launch {
-            taskDao.getTasksByDate(normalizedDate).collectLatest { tasks ->
-                taskAdapter.updateTasks(tasks)
+            when (selectedTaskFilterType) {
+                "Tugas Harian" -> {
+                    taskDao.getTasksByDate(normalizedDate).collectLatest { tasks ->
+                        taskAdapter.submitList(tasks)
+                        val completedTasks = tasks.count { it.isCompleted }
+                        val totalTasks = tasks.size
+                        binding.textViewTaskSummary.text = "$completedTasks/$totalTasks"
+                    }
+                }
+                "Tugas Spesial" -> {
+                    specialTaskDao.getTasksByDate(normalizedDate).collectLatest { specialTasks ->
+                        // Konversi SpecialTask ke Task untuk adapter
+                        val tasks = specialTasks.map { Task(it.id, it.date, it.description, it.isCompleted) }
+                        taskAdapter.submitList(tasks)
+                        val completedTasks = tasks.count { it.isCompleted }
+                        val totalTasks = tasks.size
+                        binding.textViewTaskSummary.text = "$completedTasks/$totalTasks"
+                    }
+                }
             }
         }
     }
@@ -158,34 +229,46 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     override fun onTasksCopied(sourceDate: Calendar, startDate: Calendar, endDate: Calendar) {
         lifecycleScope.launch {
             val normalizedSourceMillis = normalizeDateToStartOfDay(sourceDate.time)
-            val sourceTasks = taskDao.getTasksByDateOnce(normalizedSourceMillis)
+            
+            val sourceTasksGeneric: List<Any> = when (selectedTaskFilterType) {
+                "Tugas Harian" -> taskDao.getTasksByDateOnce(normalizedSourceMillis)
+                "Tugas Spesial" -> specialTaskDao.getTasksByDateOnce(normalizedSourceMillis)
+                else -> emptyList() // Should not happen with current filter types
+            }
 
-            if (sourceTasks.isEmpty()) {
+            if (sourceTasksGeneric.isEmpty()) {
                 Toast.makeText(this@MainActivity, "Tidak ada tugas untuk disalin dari tanggal sumber.", Toast.LENGTH_SHORT).show()
                 return@launch
             }
 
             val newTasks = mutableListOf<Task>()
+            val newSpecialTasks = mutableListOf<SpecialTask>()
             val loopCalendar = startDate.clone() as Calendar
 
-            // Normalize end date to avoid time-of-day issues in the loop
             val endMillis = normalizeDateToStartOfDay(endDate.time)
 
             while (normalizeDateToStartOfDay(loopCalendar.time) <= endMillis) {
                 val targetDateMillis = normalizeDateToStartOfDay(loopCalendar.time)
-                for (sourceTask in sourceTasks) {
-                    newTasks.add(sourceTask.copy(id = 0, date = targetDateMillis))
+                for (sourceTask in sourceTasksGeneric) {
+                    when (sourceTask) {
+                        is Task -> newTasks.add(sourceTask.copy(id = 0, date = targetDateMillis))
+                        is SpecialTask -> newSpecialTasks.add(sourceTask.copy(id = 0, date = targetDateMillis))
+                    }
                 }
                 loopCalendar.add(Calendar.DAY_OF_YEAR, 1)
             }
 
             if (newTasks.isNotEmpty()) {
                 taskDao.insertAll(newTasks)
-                val dayCount = newTasks.size / sourceTasks.size
-                Toast.makeText(this@MainActivity, "${sourceTasks.size} tugas berhasil disalin ke $dayCount hari.", Toast.LENGTH_LONG).show()
+                val dayCount = newTasks.size / (sourceTasksGeneric.filterIsInstance<Task>().size.takeIf { it > 0 } ?: 1)
+                Toast.makeText(this@MainActivity, "${sourceTasksGeneric.filterIsInstance<Task>().size} tugas harian berhasil disalin ke $dayCount hari.", Toast.LENGTH_LONG).show()
+            }
+            if (newSpecialTasks.isNotEmpty()) {
+                specialTaskDao.insertAll(newSpecialTasks)
+                val dayCount = newSpecialTasks.size / (sourceTasksGeneric.filterIsInstance<SpecialTask>().size.takeIf { it > 0 } ?: 1)
+                Toast.makeText(this@MainActivity, "${sourceTasksGeneric.filterIsInstance<SpecialTask>().size} tugas spesial berhasil disalin ke $dayCount hari.", Toast.LENGTH_LONG).show()
             }
             
-            // Refresh the view to show potential changes
             observeTasksForDay()
         }
     }
@@ -193,12 +276,26 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     // --- FUNGSI CRUD & BANTU --- //
 
     private fun updateTaskStatus(task: Task) {
-        lifecycleScope.launch { taskDao.update(task) }
+        lifecycleScope.launch {
+            // Perbarui di DAO yang sesuai
+            when (selectedTaskFilterType) {
+                "Tugas Harian" -> taskDao.update(task)
+                "Tugas Spesial" -> {
+                    // Konversi Task kembali ke SpecialTask untuk update
+                    val specialTask = SpecialTask(task.id, task.date, task.description, task.isCompleted)
+                    specialTaskDao.update(specialTask)
+                }
+            }
+        }
     }
 
     private fun deleteTask(task: Task) {
         lifecycleScope.launch {
-            taskDao.delete(task.id)
+            // Hapus dari DAO yang sesuai
+            when (selectedTaskFilterType) {
+                "Tugas Harian" -> taskDao.delete(task.id)
+                "Tugas Spesial" -> specialTaskDao.delete(task.id)
+            }
             Toast.makeText(this@MainActivity, "Tugas dihapus!", Toast.LENGTH_SHORT).show()
         }
     }
@@ -211,5 +308,40 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
+    }
+
+    // --- FUNGSI ANIMASI UI --- //
+
+    private fun hideCalendarContainer() {
+        calendarAnimator?.cancel() // Batalkan animasi yang sedang berjalan
+        if (binding.calendarContainer.visibility == View.GONE) return
+
+        calendarAnimator = ObjectAnimator.ofFloat(binding.calendarContainer, "alpha", 1f, 0f).apply {
+            duration = 300
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    binding.calendarContainer.visibility = View.GONE
+                    calendarAnimator = null // Hapus referensi animator
+                }
+            })
+            start()
+        }
+    }
+
+    private fun showCalendarContainer() {
+        calendarAnimator?.cancel() // Batalkan animasi yang sedang berjalan
+        if (binding.calendarContainer.visibility == View.VISIBLE) return
+
+        binding.calendarContainer.alpha = 0f
+        binding.calendarContainer.visibility = View.VISIBLE
+        calendarAnimator = ObjectAnimator.ofFloat(binding.calendarContainer, "alpha", 0f, 1f).apply {
+            duration = 600
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    calendarAnimator = null // Hapus referensi animator
+                }
+            })
+            start()
+        }
     }
 }
