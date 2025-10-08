@@ -12,7 +12,7 @@ interface SpecialTaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(task: SpecialTask)
 
-    @Query("SELECT * FROM special_task_table WHERE date = :selectedDate ORDER BY isCompleted ASC")
+    @Query("SELECT * FROM special_task_table WHERE date = :selectedDate ORDER BY id ASC")
     fun getTasksByDate(selectedDate: Long): Flow<List<SpecialTask>>
 
     @Update

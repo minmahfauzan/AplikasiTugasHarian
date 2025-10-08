@@ -14,7 +14,7 @@ interface TaskDao {
     suspend fun insert(task: Task)
 
     // Mengambil semua tugas untuk tanggal tertentu, diurutkan berdasarkan status
-    @Query("SELECT * FROM task_table WHERE date = :selectedDate ORDER BY isCompleted ASC")
+    @Query("SELECT * FROM task_table WHERE date = :selectedDate ORDER BY id ASC")
     fun getTasksByDate(selectedDate: Long): Flow<List<Task>>
 
     // Mengambil semua tugas untuk rentang tanggal (bulan) tertentu, diurutkan berdasarkan tanggal & status

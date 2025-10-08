@@ -34,9 +34,8 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     private var selectedTaskFilterType: String = "Tugas Harian" // Default filter
 
     private var observeJob: Job? = null
-    private var calendarAnimator: ObjectAnimator? = null // Tambahkan ini
-    private var accumulatedPull = 0f
-    private val triggerThreshold = 180f // px (atur sesuai enaknya)
+    private var calendarAnimator: ObjectAnimator? = null
+    private var isCalendarAnimating = false // Add this flag
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -311,44 +310,47 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
         }.timeInMillis
     }
 
+
     // --- FUNGSI ANIMASI UI --- //
     private fun hideCalendarContainer() {
-        calendarAnimator?.cancel()
+        calendarAnimator?.cancel() // Batalkan animasi yang sedang berjalan
         if (binding.calendarContainer.visibility == View.GONE) return
 
-        // Geser ke atas (slide up) lalu sembunyikan
-        binding.calendarContainer.animate()
-            .translationY(-binding.calendarContainer.height.toFloat())
-            .setDuration(100)
-            .setListener(object : AnimatorListenerAdapter() {
+        calendarAnimator = ObjectAnimator.ofFloat(binding.calendarContainer, "alpha", 1f, 0f).apply {
+            duration = 300
+            addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     binding.calendarContainer.visibility = View.GONE
-                    // ❌ jangan reset translationY ke 0 di sini
-                    calendarAnimator = null
+                    calendarAnimator = null // Hapus referensi animator
                 }
             })
-            .start()
+            start()
+        }
     }
 
     private fun showCalendarContainer() {
-        calendarAnimator?.cancel()
-        if (binding.calendarContainer.visibility == View.VISIBLE) return
+        if (isCalendarAnimating || binding.calendarContainer.visibility == View.VISIBLE) return
+        isCalendarAnimating = true
 
-        // Awali dari atas
-        binding.calendarContainer.translationY = -binding.calendarContainer.height.toFloat()
+        calendarAnimator?.cancel()
+
+        binding.calendarContainer.alpha = 0f
         binding.calendarContainer.visibility = View.VISIBLE
 
-        // Geser turun
         binding.calendarContainer.animate()
-            .translationY(0f)
-            .setDuration(100)
+            .alpha(1f)
+            .setDuration(300)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    isCalendarAnimating = false
                     calendarAnimator = null
+                }
+
+                override fun onAnimationCancel(animation: Animator) {
+                    isCalendarAnimating = false
                 }
             })
             .start()
     }
-
 
 }
