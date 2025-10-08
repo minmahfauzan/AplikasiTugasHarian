@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <!-- 1. Tanggal Sumber -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Salin Tugas Dari Tanggal:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/textSourceDate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="?attr/editTextBackground"
+        android:padding="12dp"
+        android:text="Pilih Tanggal..."
+        android:textSize="18sp" />
+
+    <!-- 2. Tanggal Mulai Tujuan -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Tempel Tugas Ke Rentang Tanggal:"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/textStartDate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="?attr/editTextBackground"
+        android:padding="12dp"
+        android:text="Tanggal Mulai..."
+        android:textSize="18sp" />
+
+    <!-- 3. Tanggal Akhir Tujuan -->
+    <TextView
+        android:id="@+id/textEndDate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="?attr/editTextBackground"
+        android:padding="12dp"
+        android:text="Tanggal Selesai..."
+        android:textSize="18sp" />
+
+</LinearLayout>
