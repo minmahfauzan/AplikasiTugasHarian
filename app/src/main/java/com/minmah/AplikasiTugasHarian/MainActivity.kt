@@ -13,6 +13,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.transition.AutoTransition
+import androidx.transition.TransitionManager
 import com.minmah.AplikasiTugasHarian.databinding.ActivityMainBinding
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
@@ -33,6 +35,7 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
 
     private var observeJob: Job? = null
     private var calendarAnimator: ObjectAnimator? = null // Tambahkan ini
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,23 +76,19 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     super.onScrolled(recyclerView, dx, dy)
 
-                    // Jika menggulir ke bawah (konten bergerak ke atas) dan kalender terlihat, sembunyikan
+                    // Scroll ke bawah → sembunyikan kalender
                     if (dy > 0 && binding.calendarContainer.visibility == View.VISIBLE) {
                         hideCalendarContainer()
                     }
-                }
 
-                override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                    super.onScrollStateChanged(recyclerView, newState)
-                    if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                        // Jika berada di paling atas daftar (tidak bisa menggulir ke atas lagi)
-                        // dan kalender tersembunyi, tampilkan kalender
-                        if (!recyclerView.canScrollVertically(-1) && binding.calendarContainer.visibility == View.GONE) {
-                            showCalendarContainer()
-                        }
+                    // Hanya kalau user tarik ke bawah saat sudah di posisi atas
+                    if (dy < -10 && !recyclerView.canScrollVertically(-1) &&
+                        binding.calendarContainer.visibility == View.GONE) {
+                        showCalendarContainer()
                     }
                 }
             })
+
         }
     }
 
@@ -152,7 +151,7 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-        
+
         updateCalendarGrid()
     }
 
@@ -229,7 +228,7 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     override fun onTasksCopied(sourceDate: Calendar, startDate: Calendar, endDate: Calendar) {
         lifecycleScope.launch {
             val normalizedSourceMillis = normalizeDateToStartOfDay(sourceDate.time)
-            
+
             val sourceTasksGeneric: List<Any> = when (selectedTaskFilterType) {
                 "Tugas Harian" -> taskDao.getTasksByDateOnce(normalizedSourceMillis)
                 "Tugas Spesial" -> specialTaskDao.getTasksByDateOnce(normalizedSourceMillis)
@@ -268,7 +267,7 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
                 val dayCount = newSpecialTasks.size / (sourceTasksGeneric.filterIsInstance<SpecialTask>().size.takeIf { it > 0 } ?: 1)
                 Toast.makeText(this@MainActivity, "${sourceTasksGeneric.filterIsInstance<SpecialTask>().size} tugas spesial berhasil disalin ke $dayCount hari.", Toast.LENGTH_LONG).show()
             }
-            
+
             observeTasksForDay()
         }
     }
@@ -311,37 +310,43 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
     }
 
     // --- FUNGSI ANIMASI UI --- //
-
     private fun hideCalendarContainer() {
-        calendarAnimator?.cancel() // Batalkan animasi yang sedang berjalan
+        calendarAnimator?.cancel()
         if (binding.calendarContainer.visibility == View.GONE) return
 
-        calendarAnimator = ObjectAnimator.ofFloat(binding.calendarContainer, "alpha", 1f, 0f).apply {
-            duration = 300
-            addListener(object : AnimatorListenerAdapter() {
+        // Geser ke atas (slide up) lalu sembunyikan
+        binding.calendarContainer.animate()
+            .translationY(-binding.calendarContainer.height.toFloat())
+            .setDuration(100)
+            .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     binding.calendarContainer.visibility = View.GONE
-                    calendarAnimator = null // Hapus referensi animator
+                    // ❌ jangan reset translationY ke 0 di sini
+                    calendarAnimator = null
                 }
             })
-            start()
-        }
+            .start()
     }
 
     private fun showCalendarContainer() {
-        calendarAnimator?.cancel() // Batalkan animasi yang sedang berjalan
+        calendarAnimator?.cancel()
         if (binding.calendarContainer.visibility == View.VISIBLE) return
 
-        binding.calendarContainer.alpha = 0f
+        // Awali dari atas
+        binding.calendarContainer.translationY = -binding.calendarContainer.height.toFloat()
         binding.calendarContainer.visibility = View.VISIBLE
-        calendarAnimator = ObjectAnimator.ofFloat(binding.calendarContainer, "alpha", 0f, 1f).apply {
-            duration = 600
-            addListener(object : AnimatorListenerAdapter() {
+
+        // Geser turun
+        binding.calendarContainer.animate()
+            .translationY(0f)
+            .setDuration(100)
+            .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
-                    calendarAnimator = null // Hapus referensi animator
+                    calendarAnimator = null
                 }
             })
-            start()
-        }
+            .start()
     }
+
+
 }
