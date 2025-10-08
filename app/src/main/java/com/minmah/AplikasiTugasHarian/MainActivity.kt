@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity(), CopyTasksDialogFragment.CopyTasksListe
 
     private var observeJob: Job? = null
     private var calendarAnimator: ObjectAnimator? = null // Tambahkan ini
+    private var accumulatedPull = 0f
+    private val triggerThreshold = 180f // px (atur sesuai enaknya)
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
